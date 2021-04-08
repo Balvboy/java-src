@@ -135,8 +135,11 @@ public class ReentrantLock implements Lock, java.io.Serializable {
                     return true;
                 }
             }
+            //判断是否为锁重入
             else if (current == getExclusiveOwnerThread()) {
+                //记录重入
                 int nextc = c + acquires;
+                //判断int overflow的情况，所以最大的重入次数为int的最大值
                 if (nextc < 0) // overflow
                     throw new Error("Maximum lock count exceeded");
                 setState(nextc);
@@ -199,13 +202,18 @@ public class ReentrantLock implements Lock, java.io.Serializable {
         private static final long serialVersionUID = 7316153563782823691L;
 
         /**
-         * Performs lock.  Try immediate barge, backing up to normal
+         * performs lock.  Try immediate barge, backing up to normal
          * acquire on failure.
+         * 在某些方面非公平锁的性能会由于公平锁。
+         * 非公平锁会首先跳过排队，首先尝试获取锁一次，
+         * 如果获取失败在退回到使用公平锁。
          */
         final void lock() {
+            //非公平锁上来就先尝试获取一次,就是这里体现了不公平，因为
             if (compareAndSetState(0, 1))
                 setExclusiveOwnerThread(Thread.currentThread());
             else
+                //如果没有获取成功
                 acquire(1);
         }
 
