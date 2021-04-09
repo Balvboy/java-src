@@ -910,25 +910,39 @@ public abstract class AbstractQueuedSynchronizer
      * @param nanosTimeout max wait time
      * @return {@code true} if acquired
      */
+    //在指定等待时间内尝试获取锁
     private boolean doAcquireNanos(int arg, long nanosTimeout)
             throws InterruptedException {
+        //如果等待时间小于0，则直接返回false
         if (nanosTimeout <= 0L)
             return false;
+        //先计算一个终止时间
         final long deadline = System.nanoTime() + nanosTimeout;
+        //加入到队列中
         final Node node = addWaiter(Node.EXCLUSIVE);
         boolean failed = true;
         try {
             for (;;) {
                 final Node p = node.predecessor();
+                //判断是否可以获取锁
                 if (p == head && tryAcquire(arg)) {
                     setHead(node);
                     p.next = null; // help GC
                     failed = false;
                     return true;
                 }
+                //如果获取锁失败，或者不能获取锁，
+                // 则判断是否已经超过了等待时间,
+                // 这里重新计算出来的nanosTimeout，表示剩余的等待时间
                 nanosTimeout = deadline - System.nanoTime();
                 if (nanosTimeout <= 0L)
+                    //如果超过了终止时间则返回false，获取锁失败
                     return false;
+
+                //判断线程是否需要阻塞，
+                // 并且这里有个判断，剩余的等待时间是否 大于1000ns，因为只有剩余时间超过1000ns，挂起才有意义
+                // 通过这里我们知道，这个线程只会被挂起一次，因为下次肯定就会超时了
+                //
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     nanosTimeout > spinForTimeoutThreshold)
                     LockSupport.parkNanos(this, nanosTimeout);

@@ -365,9 +365,12 @@ public abstract class AbstractQueuedLongSynchronizer
         for (;;) {
             Node t = tail;
             if (t == null) { // Must initialize
+                //走到这里的话说明，说明Node还没有初始化，需要创建一个节点，当做头结点
+                //初始化的时候，只有一个节点，所以这个节点既是头结点又是尾结点
                 if (compareAndSetHead(new Node()))
                     tail = head;
             } else {
+                //当初始化完成之后，会继续循环，直到把当前节点设置为尾结点。
                 node.prev = t;
                 if (compareAndSetTail(t, node)) {
                     t.next = node;
@@ -443,10 +446,9 @@ public abstract class AbstractQueuedLongSynchronizer
          * traverse backwards from tail to find the actual
          * non-cancelled successor.
          */
-        Node s = node.next;
         //拿到头结点的下一个节点
+        Node s = node.next;
         //如果为空，或者状态是已取消，则从尾结点开始找到一个非canceled状态的节点，然后唤醒它
-        //
         if (s == null || s.waitStatus > 0) {
             s = null;
             for (Node t = tail; t != null && t != node; t = t.prev)
@@ -621,6 +623,7 @@ public abstract class AbstractQueuedLongSynchronizer
              * need a signal, but don't park yet.  Caller will need to
              * retry to make sure it cannot acquire before parking.
              */
+            //这时候会把前置节点的waitStatus 状态修改为
             compareAndSetWaitStatus(pred, ws, Node.SIGNAL);
         }
         return false;
@@ -643,6 +646,9 @@ public abstract class AbstractQueuedLongSynchronizer
     //使用park()挂起的一个特点就是，当调用线程的中断方法时，不会抛出终端异常，只会记录一下线程的中断状态
     private final boolean parkAndCheckInterrupt() {
         LockSupport.park(this);
+        //这里注意一下，如果是通过调用线程interrupt方法唤醒了挂起的线程。
+        //这里调用的是 interrupted(),这个方法的作用是，放回当前线程的终端状态，然后清除掉终端状态，
+        //就是因为这里清除了终端状态，所以当外面的循坏再次调用到上面的park()方法时，才能继续挂起。
         return Thread.interrupted();
     }
 
@@ -702,6 +708,8 @@ public abstract class AbstractQueuedLongSynchronizer
      */
     private void doAcquireInterruptibly(long arg)
         throws InterruptedException {
+        //这里和上面的操作一样，也是会把当前线程封装成一个Node
+        //然后放到队尾
         final Node node = addWaiter(Node.EXCLUSIVE);
         boolean failed = true;
         try {
@@ -714,6 +722,8 @@ public abstract class AbstractQueuedLongSynchronizer
                     return;
                 }
                 if (shouldParkAfterFailedAcquire(p, node) &&
+                    //这里只有当线程是被interrupt唤醒的时候，parkAndCheckInterrupt()会放回true
+                    //然后就会抛出中断异常
                     parkAndCheckInterrupt())
                     throw new InterruptedException();
             }
@@ -1041,6 +1051,11 @@ public abstract class AbstractQueuedLongSynchronizer
      *        can represent anything you like.
      * @throws InterruptedException if the current thread is interrupted
      */
+    //AQS还提供了 xxxxInterruptibly的方法，这类方法和xxxx的区别是
+    //它是响应线程中断的
+    //如果一个线程调用了 xxxx类型的方法，那么就算再等待获取锁的过程中，调用了该线程的中断方法
+    //线程也不会停止，只是会通过selfInterrupt()方法，在线程获取到锁的时候，把线程被中断过的这个状态重新设置到线程中。
+    //而xxxxInterruptibly,则是，如果在获取所得过程中，调用了中断方法，那么就会抛出中断异常，能够停止获取锁的操作
     public final void acquireInterruptibly(long arg)
             throws InterruptedException {
         if (Thread.interrupted())
@@ -1086,6 +1101,7 @@ public abstract class AbstractQueuedLongSynchronizer
      */
     public final boolean release(long arg) {
         if (tryRelease(arg)) {
+            //如果尝试释放成功，则找到下一个可以尝试获取锁的节点，并且唤醒它
             Node h = head;
             if (h != null && h.waitStatus != 0)
                 unparkSuccessor(h);
