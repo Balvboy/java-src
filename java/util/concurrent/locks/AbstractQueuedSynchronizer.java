@@ -584,9 +584,12 @@ public abstract class AbstractQueuedSynchronizer
         for (;;) {
             Node t = tail;
             if (t == null) { // Must initialize
+                //走到这里的话说明，说明Node还没有初始化，需要创建一个节点，当做头结点
+                //初始化的时候，只有一个节点，所以这个节点既是头结点又是尾结点
                 if (compareAndSetHead(new Node()))
                     tail = head;
             } else {
+                //当初始化完成之后，会继续循环，直到把当前节点设置为尾结点。
                 node.prev = t;
                 if (compareAndSetTail(t, node)) {
                     t.next = node;
@@ -602,18 +605,32 @@ public abstract class AbstractQueuedSynchronizer
      * @param mode Node.EXCLUSIVE for exclusive, Node.SHARED for shared
      * @return the new node
      */
+
+
+
     private Node addWaiter(Node mode) {
+        //构建新的node节点
         Node node = new Node(Thread.currentThread(), mode);
         // Try the fast path of enq; backup to full enq on failure
+        //这里进行一次快速入队，而不是直接走完整的入队方法的考虑是
+        //完整入队操作，是通过死循环，然后调用CAS来实现的。JVM或者操作系统，在处理循环的时候，需要
+        //很多额外的资源和开销，
+        // 所以先进行一次单独的CAS操作，如果成功的话，就能节省掉死循环的开销
         Node pred = tail;
+        //如果尾节点不为空，把当前节点的前置节点设置为尾节点
+        //这里入队的时候，先尝试快速入队
         if (pred != null) {
+            //先和前面的节点建立联系，保证从后面遍历的时候，能够遍历到所有的节点
             node.prev = pred;
+            //使用cas设置当前节点为尾节点
             if (compareAndSetTail(pred, node)) {
+                //如果设置成功，把前置节点的next指向当前节点
                 pred.next = node;
                 return node;
             }
         }
-        enq(node);
+        //如果CAS失败，或者尾结点为空，则需要进入完整的入队逻辑。
+        //CAS失败，则说明，有另一个线程进入了队列，并成为了尾结点。
         return node;
     }
 
@@ -651,13 +668,44 @@ public abstract class AbstractQueuedSynchronizer
          * traverse backwards from tail to find the actual
          * non-cancelled successor.
          */
+        /**
+         这里从后向前遍历的原因是，在新节点node入队的时候，都是先设置
+         node.prev = p（之前的tail节点）(也就是说从后向前可以遍历整个队里了)
+         然后通过cas，把node节点设置为tail
+         如果cas成功，才设置 p.next = node (这时候从head节点向后才能遍历整个队列)
+
+         以为cas成功，和 设置 p.next = node 这两个步骤并不是原子的
+         所以如果cas成功之后，在执行 p.next = node之前，unparkSuccessor()被调用。
+         线程开始从前往后遍历，这时候 p.next 还是为null的，所以就不能遍历队列所有的节点了。
+         **/
+
+        /**
+         * 因为Node是一个双向队列
+         * 在插入新节点的时候，总是会先把新节点和前面的节点(也就是之前的尾结点)建立联系。node.prev = p;
+         * 然后当新节点成功的成为尾结点之后，才会把 前面的节点和新节点建立联系 p.next = node;
+         *
+         * 这是可以理解，也是必须的。
+         * 因为 p(之前的尾结点)，已经是队列中确定的一个节点，如果在node节点确定加入队列之前就修改了p节点的next属性，如果node能在紧接着的
+         * cas操作成功还好，如果cas失败，那就是让p.next指向了一个队列外的节点。这肯定是不行的。
+         *
+         * 所以说要么把入队和与p.next = node 这两个操作搞成一个原子操作(但是这样肯定会影响性能)，要么想出一个方案，在节点已经入队(已经成为了尾结点)，但是前面节点p还没和node节点建立联系的情况下，也能顺利的遍历所有的节点。
+         *
+         * 先执行node.prev = p，就是解决这个问题的办法。
+         *
+         * 所以导致了这里必须采用从队尾开始遍历的方案
+         *
+         */
+
+        //拿到头结点的下一个节点
         Node s = node.next;
+        //如果为空，或者状态是已取消，则从尾结点开始找到一个非canceled状态的节点，然后唤醒它
         if (s == null || s.waitStatus > 0) {
             s = null;
             for (Node t = tail; t != null && t != node; t = t.prev)
                 if (t.waitStatus <= 0)
                     s = t;
         }
+        //如果找到了合适的节点，则使用unpark()方法唤醒
         if (s != null)
             LockSupport.unpark(s.thread);
     }
@@ -747,6 +795,7 @@ public abstract class AbstractQueuedSynchronizer
         node.thread = null;
 
         // Skip cancelled predecessors
+        //跳过前面节点中状态为cancel的节点
         Node pred = node.prev;
         while (pred.waitStatus > 0)
             node.prev = pred = pred.prev;
@@ -759,18 +808,20 @@ public abstract class AbstractQueuedSynchronizer
         // Can use unconditional write instead of CAS here.
         // After this atomic step, other Nodes can skip past us.
         // Before, we are free of interference from other threads.
+        //把当前节点的状态设置为取消
         node.waitStatus = Node.CANCELLED;
 
         // If we are the tail, remove ourselves.
+        // 如果当前节点是尾结点，则修改当前节点的前置节点为新的尾结点
         if (node == tail && compareAndSetTail(node, pred)) {
+            //然后把前置节点的next 设置为null,这时候前置节点已经是尾结点了，所以它没有next节点了
             compareAndSetNext(pred, predNext, null);
         } else {
             // If successor needs signal, try to set pred's next-link
             // so it will get one. Otherwise wake it up to propagate.
             int ws;
             if (pred != head &&
-                ((ws = pred.waitStatus) == Node.SIGNAL ||
-                 (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
+                ((ws = pred.waitStatus) == Node.SIGNAL || (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
                 pred.thread != null) {
                 Node next = node.next;
                 if (next != null && next.waitStatus <= 0)
@@ -792,9 +843,13 @@ public abstract class AbstractQueuedSynchronizer
      * @param node the node
      * @return {@code true} if thread should block
      */
+    //在这个方法判断node节点的线程，是否需要挂起
     private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
+        //获取前置节点的waitStatus
         int ws = pred.waitStatus;
         if (ws == Node.SIGNAL)
+            //如果pred节点的waitStatus是SIGNAL，则表示pred节点正在等待别的通知来唤醒
+            //所以node节点肯定没有疑问，直接挂起
             /*
              * This node has already set status asking a release
              * to signal it, so it can safely park.
@@ -805,6 +860,10 @@ public abstract class AbstractQueuedSynchronizer
              * Predecessor was cancelled. Skip over predecessors and
              * indicate retry.
              */
+
+            //waitStatus > 0 只有可能是canceled，那么则踢出pred节点
+            //让node的prev指向 pred节点的prev，就相当于跳过了pred节点。
+            //这里是一个循环操作，表示会把前面所有的连续的cancel状态的节点都替换掉
             do {
                 node.prev = pred = pred.prev;
             } while (pred.waitStatus > 0);
@@ -815,6 +874,7 @@ public abstract class AbstractQueuedSynchronizer
              * need a signal, but don't park yet.  Caller will need to
              * retry to make sure it cannot acquire before parking.
              */
+            //这时候会把前置节点的waitStatus 状态修改为signal，这样在下次循环的时候，当前节点就会执行挂起操作了
             compareAndSetWaitStatus(pred, ws, Node.SIGNAL);
         }
         return false;
@@ -832,8 +892,14 @@ public abstract class AbstractQueuedSynchronizer
      *
      * @return {@code true} if interrupted
      */
+    //使用LockSupport.park()挂起当前线程，
+    //当线程被unpark()唤醒，或者被终端的时候返回当前线程的中断状态
+    //使用park()挂起的一个特点就是，当调用线程的中断方法时，不会抛出终端异常，只会记录一下线程的中断状态
     private final boolean parkAndCheckInterrupt() {
         LockSupport.park(this);
+        //这里注意一下，如果是通过调用线程interrupt方法唤醒了挂起的线程。
+        //这里调用的是 interrupted(),这个方法的作用是，放回当前线程的终端状态，然后清除掉终端状态，
+        //就是因为这里清除了终端状态，所以当外面的循坏再次调用到上面的park()方法时，才能继续挂起。
         return Thread.interrupted();
     }
 
@@ -860,12 +926,24 @@ public abstract class AbstractQueuedSynchronizer
             boolean interrupted = false;
             for (;;) {
                 final Node p = node.predecessor();
+                //如果这个节点的前置节点是头结点，那么则表示这个节点有获取锁的资格。
+                //顺便说一下，在AQS的队列中个，头结点是一个虚节点，是为了在编程的时候更为方便，或者可以理解为已经获取到锁的节点
+                //调用tryAcquire()尝试获取锁
                 if (p == head && tryAcquire(arg)) {
                     setHead(node);
                     p.next = null; // help GC
                     failed = false;
                     return interrupted;
                 }
+                //如果没有资格获取锁，或者获取锁失败
+                //则需要通过shouldParkAfterFailedAcquire()，判断这个线程是否需要挂起
+                //如果需要park，则调用parkAndCheckInterrupt()方法，进行挂起。
+                //线程在挂起的时候，有两种唤醒的方式，
+                // 1.使用unpark
+                // 2.使用线程中断方法
+                //如果这个线程是被线程中断方法唤醒，那么会把这个interrupted变量置为true
+                //然后在等到这个线程获取到锁的时候，会把这个中断状态传出去
+                //这里使用到的一个特性就是，被park挂起的线程，当线程中断的时候不会抛出线程中断异常
                 if (shouldParkAfterFailedAcquire(p, node) &&
                     parkAndCheckInterrupt())
                     interrupted = true;
@@ -882,6 +960,8 @@ public abstract class AbstractQueuedSynchronizer
      */
     private void doAcquireInterruptibly(int arg)
         throws InterruptedException {
+        //这里和上面的操作一样，也是会把当前线程封装成一个Node
+        //然后放到队尾
         final Node node = addWaiter(Node.EXCLUSIVE);
         boolean failed = true;
         try {
@@ -894,6 +974,8 @@ public abstract class AbstractQueuedSynchronizer
                     return;
                 }
                 if (shouldParkAfterFailedAcquire(p, node) &&
+                    //这里只有当线程是被interrupt唤醒的时候，parkAndCheckInterrupt()会放回true
+                    //然后就会抛出中断异常
                     parkAndCheckInterrupt())
                     throw new InterruptedException();
             }
@@ -950,7 +1032,9 @@ public abstract class AbstractQueuedSynchronizer
                     throw new InterruptedException();
             }
         } finally {
+            //如果超时了，但是没有获的锁，fail就保持为true
             if (failed)
+                //那么就会执行取消获取
                 cancelAcquire(node);
         }
     }
@@ -1086,6 +1170,8 @@ public abstract class AbstractQueuedSynchronizer
      *         correctly.
      * @throws UnsupportedOperationException if exclusive mode is not supported
      */
+    //尝试获取锁，如果获取成功则返回true，如果获取失败则返回false，
+    // 获取失败并不会，被加入到等待队列中
     protected boolean tryAcquire(int arg) {
         throw new UnsupportedOperationException();
     }
@@ -1209,6 +1295,11 @@ public abstract class AbstractQueuedSynchronizer
      *        can represent anything you like.
      */
     public final void acquire(int arg) {
+        //tryAcquire()先尝试获取锁，如果成功则直接结束
+        //如果获取失败，addWaiter()方法则把当前线程包装为Node节点，然后加入到队列中
+        //通过acquireQueued()方法，挂起，然后知道线程获得所得时候返回。
+        //如果线程在获取锁的过程中，被调用过中断，acquireQueued()方法就会放回true
+        //然后就会执行selfInterrupt()方法，重新设置一下这个线程中断状态
         if (!tryAcquire(arg) &&
             acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
             selfInterrupt();
@@ -1228,6 +1319,11 @@ public abstract class AbstractQueuedSynchronizer
      *        can represent anything you like.
      * @throws InterruptedException if the current thread is interrupted
      */
+    //AQS还提供了 xxxxInterruptibly的方法，这类方法和xxxx的区别是
+    //它是响应线程中断的
+    //如果一个线程调用了 xxxx类型的方法，那么就算再等待获取锁的过程中，调用了该线程的中断方法
+    //线程也不会停止，只是会通过selfInterrupt()方法，在线程获取到锁的时候，把线程被中断过的这个状态重新设置到线程中。
+    //而xxxxInterruptibly,则是，如果在获取所得过程中，调用了中断方法，那么就会抛出中断异常，能够停止获取锁的操作
     public final void acquireInterruptibly(int arg)
             throws InterruptedException {
         if (Thread.interrupted())

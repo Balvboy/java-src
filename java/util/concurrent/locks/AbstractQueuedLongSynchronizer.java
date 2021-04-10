@@ -58,8 +58,8 @@ import sun.misc.Unsafe;
  * @author Doug Lea
  */
 public abstract class AbstractQueuedLongSynchronizer
-    extends AbstractOwnableSynchronizer
-    implements java.io.Serializable {
+        extends AbstractOwnableSynchronizer
+        implements java.io.Serializable {
 
     private static final long serialVersionUID = 7373984972572414692L;
 
@@ -307,8 +307,6 @@ public abstract class AbstractQueuedLongSynchronizer
 
     /**
      * The synchronization state.
-     * 会用来存储锁状态和重入次数
-     *
      */
     private volatile long state;
 
@@ -360,17 +358,13 @@ public abstract class AbstractQueuedLongSynchronizer
      * @param node the node to insert
      * @return node's predecessor
      */
-    //这个方法的操作
     private Node enq(final Node node) {
         for (;;) {
             Node t = tail;
             if (t == null) { // Must initialize
-                //走到这里的话说明，说明Node还没有初始化，需要创建一个节点，当做头结点
-                //初始化的时候，只有一个节点，所以这个节点既是头结点又是尾结点
                 if (compareAndSetHead(new Node()))
                     tail = head;
             } else {
-                //当初始化完成之后，会继续循环，直到把当前节点设置为尾结点。
                 node.prev = t;
                 if (compareAndSetTail(t, node)) {
                     t.next = node;
@@ -387,27 +381,16 @@ public abstract class AbstractQueuedLongSynchronizer
      * @return the new node
      */
     private Node addWaiter(Node mode) {
-        //构建新的node节点
         Node node = new Node(Thread.currentThread(), mode);
         // Try the fast path of enq; backup to full enq on failure
-        //这里进行一次快速入队，而不是直接走完整的入队方法的考虑是
-        //完整入队操作，是通过死循环，然后调用CAS来实现的。JVM或者操作系统，在处理循环的时候，需要
-        //很多额外的资源和开销，
-        // 所以先进行一次单独的CAS操作，如果成功的话，就能节省掉死循环的开销
         Node pred = tail;
-        //如果尾节点不为空，把当前节点的前置节点设置为尾节点
-        //这里入队的时候，先尝试快速入队
         if (pred != null) {
             node.prev = pred;
-            //使用cas设置当前节点为尾节点
             if (compareAndSetTail(pred, node)) {
-                //如果设置成功，把前置节点的next指向当前节点
                 pred.next = node;
                 return node;
             }
         }
-        //如果CAS失败，或者尾结点为空，则需要进入完整的入队逻辑。
-        //CAS失败，则说明，有另一个线程进入了队列，并成为了尾结点。
         enq(node);
         return node;
     }
@@ -446,16 +429,13 @@ public abstract class AbstractQueuedLongSynchronizer
          * traverse backwards from tail to find the actual
          * non-cancelled successor.
          */
-        //拿到头结点的下一个节点
         Node s = node.next;
-        //如果为空，或者状态是已取消，则从尾结点开始找到一个非canceled状态的节点，然后唤醒它
         if (s == null || s.waitStatus > 0) {
             s = null;
             for (Node t = tail; t != null && t != node; t = t.prev)
                 if (t.waitStatus <= 0)
                     s = t;
         }
-        //如果不为空，则使用unpark()方法唤醒
         if (s != null)
             LockSupport.unpark(s.thread);
     }
@@ -487,7 +467,7 @@ public abstract class AbstractQueuedLongSynchronizer
                     unparkSuccessor(h);
                 }
                 else if (ws == 0 &&
-                         !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
+                        !compareAndSetWaitStatus(h, 0, Node.PROPAGATE))
                     continue;                // loop on failed CAS
             }
             if (h == head)                   // loop if head changed
@@ -523,7 +503,7 @@ public abstract class AbstractQueuedLongSynchronizer
          * anyway.
          */
         if (propagate > 0 || h == null || h.waitStatus < 0 ||
-            (h = head) == null || h.waitStatus < 0) {
+                (h = head) == null || h.waitStatus < 0) {
             Node s = node.next;
             if (s == null || s.isShared())
                 doReleaseShared();
@@ -567,9 +547,9 @@ public abstract class AbstractQueuedLongSynchronizer
             // so it will get one. Otherwise wake it up to propagate.
             int ws;
             if (pred != head &&
-                ((ws = pred.waitStatus) == Node.SIGNAL ||
-                 (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
-                pred.thread != null) {
+                    ((ws = pred.waitStatus) == Node.SIGNAL ||
+                            (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
+                    pred.thread != null) {
                 Node next = node.next;
                 if (next != null && next.waitStatus <= 0)
                     compareAndSetNext(pred, predNext, next);
@@ -590,29 +570,19 @@ public abstract class AbstractQueuedLongSynchronizer
      * @param node the node
      * @return {@code true} if thread should block
      */
-    //在这个方法判断node节点的线程，是否需要挂起
     private static boolean shouldParkAfterFailedAcquire(Node pred, Node node) {
-        //获取前置节点的waitStatus
         int ws = pred.waitStatus;
         if (ws == Node.SIGNAL)
-            //如果pred节点的waitStatus是SIGNAL，则表示pred节点正在等待别的通知来唤醒
-            //所以node节点肯定没有疑问，直接挂起
             /*
              * This node has already set status asking a release
              * to signal it, so it can safely park.
-             */ {
+             */
             return true;
-        }
         if (ws > 0) {
-
             /*
              * Predecessor was cancelled. Skip over predecessors and
              * indicate retry.
              */
-
-            //waitStatus > 0 只有可能是canceled，那么则踢出pred节点
-            //让node的prev指向 pred节点的prev，就相当于跳过了pred节点。
-            //这里是一个循环操作，表示会把前面所有的连续的cancel状态的节点都替换掉
             do {
                 node.prev = pred = pred.prev;
             } while (pred.waitStatus > 0);
@@ -623,7 +593,6 @@ public abstract class AbstractQueuedLongSynchronizer
              * need a signal, but don't park yet.  Caller will need to
              * retry to make sure it cannot acquire before parking.
              */
-            //这时候会把前置节点的waitStatus 状态修改为
             compareAndSetWaitStatus(pred, ws, Node.SIGNAL);
         }
         return false;
@@ -641,14 +610,8 @@ public abstract class AbstractQueuedLongSynchronizer
      *
      * @return {@code true} if interrupted
      */
-    //使用LockSupport.park()挂起当前线程，
-    //当线程被unpark()唤醒，或者被终端的时候返回当前线程的中断状态
-    //使用park()挂起的一个特点就是，当调用线程的中断方法时，不会抛出终端异常，只会记录一下线程的中断状态
     private final boolean parkAndCheckInterrupt() {
         LockSupport.park(this);
-        //这里注意一下，如果是通过调用线程interrupt方法唤醒了挂起的线程。
-        //这里调用的是 interrupted(),这个方法的作用是，放回当前线程的终端状态，然后清除掉终端状态，
-        //就是因为这里清除了终端状态，所以当外面的循坏再次调用到上面的park()方法时，才能继续挂起。
         return Thread.interrupted();
     }
 
@@ -675,25 +638,14 @@ public abstract class AbstractQueuedLongSynchronizer
             boolean interrupted = false;
             for (;;) {
                 final Node p = node.predecessor();
-                //如果这个节点的前置节点是头结点，那么则表示这个节点有获取锁的资格。
-                //顺便说一下，在AQS的队列中个，头结点是一个虚节点，是为了在编程的时候更为方便，或者可以理解为已经获取到锁的节点
-                //调用tryAcquire()尝试获取锁
                 if (p == head && tryAcquire(arg)) {
                     setHead(node);
                     p.next = null; // help GC
                     failed = false;
                     return interrupted;
                 }
-                //如果没有资格获取锁，或者获取锁失败
-                //则需要通过shouldParkAfterFailedAcquire()，判断这个线程是否需要挂起
-                //如果需要park，则调用parkAndCheckInterrupt()方法，进行挂起。
-                //线程在挂起的时候，有两种唤醒的方式，
-                    // 1.使用unpark
-                    // 2.使用线程中断方法
-                //如果这个线程是被线程中断方法唤醒，那么会把这个interrupted变量置为true
-                //然后在等到这个线程获取到锁的时候，会把这个中断状态传出去
-                //这里使用到的一个特性就是，被park挂起的线程，当线程中断的时候不会抛出线程中断异常
-                if (shouldParkAfterFailedAcquire(p, node) && parkAndCheckInterrupt())
+                if (shouldParkAfterFailedAcquire(p, node) &&
+                        parkAndCheckInterrupt())
                     interrupted = true;
             }
         } finally {
@@ -707,9 +659,7 @@ public abstract class AbstractQueuedLongSynchronizer
      * @param arg the acquire argument
      */
     private void doAcquireInterruptibly(long arg)
-        throws InterruptedException {
-        //这里和上面的操作一样，也是会把当前线程封装成一个Node
-        //然后放到队尾
+            throws InterruptedException {
         final Node node = addWaiter(Node.EXCLUSIVE);
         boolean failed = true;
         try {
@@ -722,9 +672,7 @@ public abstract class AbstractQueuedLongSynchronizer
                     return;
                 }
                 if (shouldParkAfterFailedAcquire(p, node) &&
-                    //这里只有当线程是被interrupt唤醒的时候，parkAndCheckInterrupt()会放回true
-                    //然后就会抛出中断异常
-                    parkAndCheckInterrupt())
+                        parkAndCheckInterrupt())
                     throw new InterruptedException();
             }
         } finally {
@@ -760,7 +708,7 @@ public abstract class AbstractQueuedLongSynchronizer
                 if (nanosTimeout <= 0L)
                     return false;
                 if (shouldParkAfterFailedAcquire(p, node) &&
-                    nanosTimeout > spinForTimeoutThreshold)
+                        nanosTimeout > spinForTimeoutThreshold)
                     LockSupport.parkNanos(this, nanosTimeout);
                 if (Thread.interrupted())
                     throw new InterruptedException();
@@ -794,7 +742,7 @@ public abstract class AbstractQueuedLongSynchronizer
                     }
                 }
                 if (shouldParkAfterFailedAcquire(p, node) &&
-                    parkAndCheckInterrupt())
+                        parkAndCheckInterrupt())
                     interrupted = true;
             }
         } finally {
@@ -808,7 +756,7 @@ public abstract class AbstractQueuedLongSynchronizer
      * @param arg the acquire argument
      */
     private void doAcquireSharedInterruptibly(long arg)
-        throws InterruptedException {
+            throws InterruptedException {
         final Node node = addWaiter(Node.SHARED);
         boolean failed = true;
         try {
@@ -824,7 +772,7 @@ public abstract class AbstractQueuedLongSynchronizer
                     }
                 }
                 if (shouldParkAfterFailedAcquire(p, node) &&
-                    parkAndCheckInterrupt())
+                        parkAndCheckInterrupt())
                     throw new InterruptedException();
             }
         } finally {
@@ -863,7 +811,7 @@ public abstract class AbstractQueuedLongSynchronizer
                 if (nanosTimeout <= 0L)
                     return false;
                 if (shouldParkAfterFailedAcquire(p, node) &&
-                    nanosTimeout > spinForTimeoutThreshold)
+                        nanosTimeout > spinForTimeoutThreshold)
                     LockSupport.parkNanos(this, nanosTimeout);
                 if (Thread.interrupted())
                     throw new InterruptedException();
@@ -902,8 +850,6 @@ public abstract class AbstractQueuedLongSynchronizer
      *         correctly.
      * @throws UnsupportedOperationException if exclusive mode is not supported
      */
-    //尝试获取锁，如果获取成功则返回true，如果获取失败则返回false，
-    // 获取失败并不会，被加入到等待队列中
     protected boolean tryAcquire(long arg) {
         throw new UnsupportedOperationException();
     }
@@ -1026,14 +972,9 @@ public abstract class AbstractQueuedLongSynchronizer
      *        {@link #tryAcquire} but is otherwise uninterpreted and
      *        can represent anything you like.
      */
-    //获取独占模式
     public final void acquire(long arg) {
-        //tryAcquire()先尝试获取锁，如果成功则直接结束
-        //如果获取失败，addWaiter()方法则把当前线程包装为Node节点，然后加入到队列中
-        //通过acquireQueued()方法，挂起，然后知道线程获得所得时候返回。
-        //如果线程在获取锁的过程中，被调用过中断，acquireQueued()方法就会放回true
-        //然后就会执行selfInterrupt()方法，重新设置一下这个线程中断状态
-        if (!tryAcquire(arg) && acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+        if (!tryAcquire(arg) &&
+                acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
             selfInterrupt();
     }
 
@@ -1051,11 +992,6 @@ public abstract class AbstractQueuedLongSynchronizer
      *        can represent anything you like.
      * @throws InterruptedException if the current thread is interrupted
      */
-    //AQS还提供了 xxxxInterruptibly的方法，这类方法和xxxx的区别是
-    //它是响应线程中断的
-    //如果一个线程调用了 xxxx类型的方法，那么就算再等待获取锁的过程中，调用了该线程的中断方法
-    //线程也不会停止，只是会通过selfInterrupt()方法，在线程获取到锁的时候，把线程被中断过的这个状态重新设置到线程中。
-    //而xxxxInterruptibly,则是，如果在获取所得过程中，调用了中断方法，那么就会抛出中断异常，能够停止获取锁的操作
     public final void acquireInterruptibly(long arg)
             throws InterruptedException {
         if (Thread.interrupted())
@@ -1086,7 +1022,7 @@ public abstract class AbstractQueuedLongSynchronizer
         if (Thread.interrupted())
             throw new InterruptedException();
         return tryAcquire(arg) ||
-            doAcquireNanos(arg, nanosTimeout);
+                doAcquireNanos(arg, nanosTimeout);
     }
 
     /**
@@ -1101,7 +1037,6 @@ public abstract class AbstractQueuedLongSynchronizer
      */
     public final boolean release(long arg) {
         if (tryRelease(arg)) {
-            //如果尝试释放成功，则找到下一个可以尝试获取锁的节点，并且唤醒它
             Node h = head;
             if (h != null && h.waitStatus != 0)
                 unparkSuccessor(h);
@@ -1168,7 +1103,7 @@ public abstract class AbstractQueuedLongSynchronizer
         if (Thread.interrupted())
             throw new InterruptedException();
         return tryAcquireShared(arg) >= 0 ||
-            doAcquireSharedNanos(arg, nanosTimeout);
+                doAcquireSharedNanos(arg, nanosTimeout);
     }
 
     /**
@@ -1249,9 +1184,9 @@ public abstract class AbstractQueuedLongSynchronizer
         Node h, s;
         Thread st;
         if (((h = head) != null && (s = h.next) != null &&
-             s.prev == head && (st = s.thread) != null) ||
-            ((h = head) != null && (s = h.next) != null &&
-             s.prev == head && (st = s.thread) != null))
+                s.prev == head && (st = s.thread) != null) ||
+                ((h = head) != null && (s = h.next) != null &&
+                        s.prev == head && (st = s.thread) != null))
             return st;
 
         /*
@@ -1304,9 +1239,9 @@ public abstract class AbstractQueuedLongSynchronizer
     final boolean apparentlyFirstQueuedIsExclusive() {
         Node h, s;
         return (h = head) != null &&
-            (s = h.next)  != null &&
-            !s.isShared()         &&
-            s.thread != null;
+                (s = h.next)  != null &&
+                !s.isShared()         &&
+                s.thread != null;
     }
 
     /**
@@ -1360,7 +1295,7 @@ public abstract class AbstractQueuedLongSynchronizer
         Node h = head;
         Node s;
         return h != t &&
-            ((s = h.next) == null || s.thread != Thread.currentThread());
+                ((s = h.next) == null || s.thread != Thread.currentThread());
     }
 
 
@@ -1459,7 +1394,7 @@ public abstract class AbstractQueuedLongSynchronizer
         long s = getState();
         String q  = hasQueuedThreads() ? "non" : "";
         return super.toString() +
-            "[State = " + s + ", " + q + "empty queue]";
+                "[State = " + s + ", " + q + "empty queue]";
     }
 
 
@@ -1718,7 +1653,7 @@ public abstract class AbstractQueuedLongSynchronizer
                     lastWaiter = null;
                 first.nextWaiter = null;
             } while (!transferForSignal(first) &&
-                     (first = firstWaiter) != null);
+                    (first = firstWaiter) != null);
         }
 
         /**
@@ -1845,8 +1780,8 @@ public abstract class AbstractQueuedLongSynchronizer
          */
         private int checkInterruptWhileWaiting(Node node) {
             return Thread.interrupted() ?
-                (transferAfterCancelledWait(node) ? THROW_IE : REINTERRUPT) :
-                0;
+                    (transferAfterCancelledWait(node) ? THROW_IE : REINTERRUPT) :
+                    0;
         }
 
         /**
@@ -1854,7 +1789,7 @@ public abstract class AbstractQueuedLongSynchronizer
          * does nothing, depending on mode.
          */
         private void reportInterruptAfterWait(int interruptMode)
-            throws InterruptedException {
+                throws InterruptedException {
             if (interruptMode == THROW_IE)
                 throw new InterruptedException();
             else if (interruptMode == REINTERRUPT)
@@ -2112,15 +2047,15 @@ public abstract class AbstractQueuedLongSynchronizer
     static {
         try {
             stateOffset = unsafe.objectFieldOffset
-                (AbstractQueuedLongSynchronizer.class.getDeclaredField("state"));
+                    (AbstractQueuedLongSynchronizer.class.getDeclaredField("state"));
             headOffset = unsafe.objectFieldOffset
-                (AbstractQueuedLongSynchronizer.class.getDeclaredField("head"));
+                    (AbstractQueuedLongSynchronizer.class.getDeclaredField("head"));
             tailOffset = unsafe.objectFieldOffset
-                (AbstractQueuedLongSynchronizer.class.getDeclaredField("tail"));
+                    (AbstractQueuedLongSynchronizer.class.getDeclaredField("tail"));
             waitStatusOffset = unsafe.objectFieldOffset
-                (Node.class.getDeclaredField("waitStatus"));
+                    (Node.class.getDeclaredField("waitStatus"));
             nextOffset = unsafe.objectFieldOffset
-                (Node.class.getDeclaredField("next"));
+                    (Node.class.getDeclaredField("next"));
 
         } catch (Exception ex) { throw new Error(ex); }
     }
@@ -2146,7 +2081,7 @@ public abstract class AbstractQueuedLongSynchronizer
                                                          int expect,
                                                          int update) {
         return unsafe.compareAndSwapInt(node, waitStatusOffset,
-                                        expect, update);
+                expect, update);
     }
 
     /**
