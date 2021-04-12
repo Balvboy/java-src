@@ -243,16 +243,21 @@ public class ReentrantLock implements Lock, java.io.Serializable {
          * Fair version of tryAcquire.  Don't grant access unless
          * recursive call or no waiters or is first.
          */
+        //公平锁的tryAcquire和非公平锁的差别就是，非公平锁会直接尝试一次CAS获取锁
+        //而公平锁则会先判断一下等待队列是不是为空。
+        //如果都尝试获取失败，之后的处理逻辑都是一样的
         protected final boolean tryAcquire(int acquires) {
             final Thread current = Thread.currentThread();
             int c = getState();
             if (c == 0) {
+                //如果队列为空，或者当前线程已经处于队列的最前，则尝试一次通过CAS获取锁
                 if (!hasQueuedPredecessors() &&
                     compareAndSetState(0, acquires)) {
                     setExclusiveOwnerThread(current);
                     return true;
                 }
             }
+            //判断重入的逻辑
             else if (current == getExclusiveOwnerThread()) {
                 int nextc = c + acquires;
                 if (nextc < 0)
@@ -260,6 +265,7 @@ public class ReentrantLock implements Lock, java.io.Serializable {
                 setState(nextc);
                 return true;
             }
+            //获取锁失败，并且不是重入，则tryAcquire失败
             return false;
         }
     }

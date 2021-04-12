@@ -791,7 +791,8 @@ public abstract class AbstractQueuedSynchronizer
         // Ignore if node doesn't exist
         if (node == null)
             return;
-
+        //将节点中的线程设置为null
+        //设置该节点不关联任何线程，也就是虚节点
         node.thread = null;
 
         // Skip cancelled predecessors
@@ -814,22 +815,34 @@ public abstract class AbstractQueuedSynchronizer
         // If we are the tail, remove ourselves.
         // 如果当前节点是尾结点，则修改当前节点的前置节点为新的尾结点
         if (node == tail && compareAndSetTail(node, pred)) {
-            //然后把前置节点的next 设置为null,这时候前置节点已经是尾结点了，所以它没有next节点了
+            //如果修改成功，然后把前置节点的next 设置为null,这时候前置节点已经是尾结点了，所以它没有next节点了
             compareAndSetNext(pred, predNext, null);
         } else {
             // If successor needs signal, try to set pred's next-link
             // so it will get one. Otherwise wake it up to propagate.
+            //如果走到这里，说明要么当前节点不是tail节点
+            //或者，在cas的时候node不是尾结点了，有新的线程加入成为了新的尾结点。
             int ws;
+            //首先判断node节点的前置节点是不是head,如果是则直接走else逻辑
             if (pred != head &&
-                ((ws = pred.waitStatus) == Node.SIGNAL || (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL))) &&
-                pred.thread != null) {
+                //如果node的前置节点不是head
+                //则判断waitStatus是不是signal
+                    //如果不是则cas把状态设置为signal
+                //判断pred的线程不能为null
+                ((ws = pred.waitStatus) == Node.SIGNAL || (ws <= 0 && compareAndSetWaitStatus(pred, ws, Node.SIGNAL)))
+                    && pred.thread != null) {
+                //接下来的操作，我理解就是把node的前置节点和node的next节点，连接起来
                 Node next = node.next;
                 if (next != null && next.waitStatus <= 0)
                     compareAndSetNext(pred, predNext, next);
             } else {
+                //如果是head的话那么现在队列的情况是   head -> node -> tail
+                //这时候 node节点是cancel状态，那么就直接唤醒 tail节点就好了
+                //唤醒tail 需要传入的是tail的前置节点也就是node，所以 unparkSuccessor(node);
                 unparkSuccessor(node);
             }
 
+            //为什么不是=null呢？
             node.next = node; // help GC
         }
     }
@@ -1366,10 +1379,20 @@ public abstract class AbstractQueuedSynchronizer
      *        {@link #tryRelease} but is otherwise uninterpreted and
      *        can represent anything you like.
      * @return the value returned from {@link #tryRelease}
+     *
      */
     public final boolean release(int arg) {
+        //tryRelease，尝试释放
+        //这里如果返回false，则表示发生了锁重入，这里只是释放了里层的，外层仍然还在持有锁
+        //如果返回true，则表示所有的重入都已经被释放了，可以唤醒下面的等待线程了
         if (tryRelease(arg)) {
             Node h = head;
+            //如果有head不为null，则表示至少有一个线程进入过等待队列，因为head节点是在后面线程进入等待队列的时候初始化的
+            //h.waitStatus != 0,为什么要加这个判断呢?
+            //因为waitStatus=0，是一个节点的初始状态，如果头结点处于这个状态，说明要么后面加入的线程还在执行中，没有执行到 shouldParkAfterFailedAcquire方法中的compareAndSetWaitStatus
+            //要么就是后面的线程在执行到 shouldParkAfterFailedAcquire()方法之前，已经超时了
+            //这两种情况都不需要唤醒
+            //第一种线程正在执行的情况，后面的线程会在第二次循环的时候tryAcquire(),能够拿到锁
             if (h != null && h.waitStatus != 0)
                 unparkSuccessor(h);
             return true;
@@ -1619,6 +1642,8 @@ public abstract class AbstractQueuedSynchronizer
      *         is at the head of the queue or the queue is empty
      * @since 1.7
      */
+    // true 表示在当前线程之前有其他线程在等待获取锁
+    // false 表示当前等待队列为空，或者当前线程已经等待队列的最前面(也就是head之后的节点，拥有获取线程的能力)
     public final boolean hasQueuedPredecessors() {
         // The correctness of this depends on head being initialized
         // before tail and on head.next being accurate if the current
