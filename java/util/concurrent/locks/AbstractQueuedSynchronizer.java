@@ -1057,6 +1057,7 @@ public abstract class AbstractQueuedSynchronizer
      * @param arg the acquire argument
      */
     private void doAcquireShared(int arg) {
+        //构建一个共享 Node节点，并加入到队列中
         final Node node = addWaiter(Node.SHARED);
         boolean failed = true;
         try {
@@ -1064,6 +1065,14 @@ public abstract class AbstractQueuedSynchronizer
             for (;;) {
                 final Node p = node.predecessor();
                 if (p == head) {
+                    //对于CountDownLatch的实现来说，如果这里所有子线程都执行完成，并调用了countdown()
+                    //则tryAcquireShared(arg)返回 1，表示获取锁成功，并通过setHeadAndPropagate()，继续唤醒下一个share节点
+                    //如果仍然有子线程没有执行完，则这里返回 -1，表示获取锁失败，则通过下面的 shouldParkAfterFailedAcquire()方法来挂起，等待所有子线程都调用countdown()之后在唤醒。
+                    //其实对于countdownlatch 来说，调用了 await()等待的多个线程之间，是没有锁的竞争关系的。所以CountDownLatch的tryAcquireShared()实现里，只是判断了当前的state值。
+                    //只要是state = 0，那就表示，所有子线程都执行完了，那么等待的线程就能够全部唤醒，不管是1个还是100个，全部都依次唤醒即可。
+                    //所以在使用CountDownLatch的时候也需要额外注意，调用了await等待的几个线程之间，最好不要有资源的竞争，因为单独使用CountDownLatch是无法保证访问这些资源是线程安全的。
+
+                    //当然对于其他的实现，比如Semphore，或者ReadWriteLock，他们就不一定了，他们需要更具arg来判断，能够有几个线程获得锁
                     int r = tryAcquireShared(arg);
                     if (r >= 0) {
                         setHeadAndPropagate(node, r);
@@ -1246,6 +1255,28 @@ public abstract class AbstractQueuedSynchronizer
      *         thrown in a consistent fashion for synchronization to work
      *         correctly.
      * @throws UnsupportedOperationException if shared mode is not supported
+     */
+
+    /**
+     *  关于tryAcquireShared的思考
+     *
+     *  在共享锁的情况下，AQS中的state字段，表示这个锁锁持有的资源数，如果每个线程都消耗一个资源的话(就是tryAcquireShared(int arg)中的 arg参数)，也等同于可支持的同时获取锁的线程数
+     *  我们举个例子
+     *  我创建一个共享锁对象，设置state为5，表示这个锁对象最多支持5个线程同时获得锁。
+     *  一个线程尝试获取锁，如果这时候state大于这个线程所需要的资源数，比如是1，
+     *  那么就进行cas操作，把state设置为 state-1，如果设置成功，则表示这个线程获取锁成功。
+     *  然后方法返回剩余的state值，
+     *      如果>0,则表示该线程获取锁成功后，资源还有剩余，还能让其他线程继续获取，那么则需要继续环境后面的线程
+     *      如果=0,则表示该线程获取锁成功后，资源正好用完，就没有必要唤醒其他线程了，因为唤醒了也获取不到。
+     *      如果<0,则表示当前的资源数，不足以让当前线程获取，所以当前线程也获取失败。
+     *
+     *  从这里看，CountDownLatch的实现其实是共享锁的一个另类。
+     *  因为其他同步器是在state不为0的时候，可以唤醒其他线程，只有CountDownLatch是state=0的时候，才唤醒其他等待线程。
+     *  当然这是因为 CountDownLatch和其他同步器的作用不同所决定的。
+     *  在CountDownLatch中，state表示的是还没有执行完任务(没有调用countdown()方法)的子线程数量。
+     *
+     *  所以仅仅是针对于 tryAcquireShared(int arg)方法的不同实现，就能够变种出多种作用截然不同的同步器，这个AQS的设计真实巧妙之极
+     *
      */
     protected int tryAcquireShared(int arg) {
         throw new UnsupportedOperationException();

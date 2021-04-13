@@ -174,6 +174,11 @@ public class Semaphore implements java.io.Serializable {
             return getState();
         }
 
+        //相对典型的 AQS共享锁使用方式
+        // state作为剩余可使用的资源数
+        //每个线程获取的时候，尝试把资源数减去自己需要的数量
+        // 如果减完，还有剩余的资源，或者资源正好为空，则表示获取共享锁成功
+        //如果减完资源数为负数，责表示当前资源不够当前线程获取，线程需要挂起，等待其他线程释放资源后，再来获取。
         final int nonfairTryAcquireShared(int acquires) {
             for (;;) {
                 int available = getState();
@@ -184,6 +189,8 @@ public class Semaphore implements java.io.Serializable {
             }
         }
 
+        //这里和上面尝试获取相对的，释放就是把之前获取的资源数，再加回去
+        //只是有一个判断超过了 Integer最大值的判断
         protected final boolean tryReleaseShared(int releases) {
             for (;;) {
                 int current = getState();
@@ -195,6 +202,7 @@ public class Semaphore implements java.io.Serializable {
             }
         }
 
+        //减少指定数量的许可证数
         final void reducePermits(int reductions) {
             for (;;) {
                 int current = getState();
@@ -206,6 +214,8 @@ public class Semaphore implements java.io.Serializable {
             }
         }
 
+        //将许可数，设置为0
+        //也就是说，让所有获取许可证的线程都挂起
         final int drainPermits() {
             for (;;) {
                 int current = getState();
@@ -225,6 +235,7 @@ public class Semaphore implements java.io.Serializable {
             super(permits);
         }
 
+        //非公平获取，直接搞
         protected int tryAcquireShared(int acquires) {
             return nonfairTryAcquireShared(acquires);
         }
@@ -240,6 +251,9 @@ public class Semaphore implements java.io.Serializable {
             super(permits);
         }
 
+
+        //公平获取，和ReentrantLock类似，都是先判断队列中是否已经有等待获取锁的node，如果有直接返回-1，表示尝试获取失败
+        //然后当前没有节点，则和非公平的逻辑一样。
         protected int tryAcquireShared(int acquires) {
             for (;;) {
                 if (hasQueuedPredecessors())
@@ -308,6 +322,8 @@ public class Semaphore implements java.io.Serializable {
      *
      * @throws InterruptedException if the current thread is interrupted
      */
+    //不带参数的 acquire方法，默认消耗1个permit
+    //默认调用的是可响应中断的方法
     public void acquire() throws InterruptedException {
         sync.acquireSharedInterruptibly(1);
     }

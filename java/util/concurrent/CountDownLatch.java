@@ -40,6 +40,13 @@ import java.util.concurrent.locks.AbstractQueuedSynchronizer;
  * A synchronization aid that allows one or more threads to wait until
  * a set of operations being performed in other threads completes.
  *
+ * CountDownLatch 是一个能够允许一个或者多个线程，等待另一组线程操作完成之后，再继续执行的一个同步器
+ *
+ * 举一个例子，我需要集齐7颗龙珠然后才能召唤神龙。
+ * 这样我派7个人(7个子线程)去帮我分别找龙珠，每个人找到之后都会通知我(countdown)
+ *
+ * 我(主线程)等到7个人都找到(await),之后然后开始召唤神龙
+ *
  * <p>A {@code CountDownLatch} is initialized with a given <em>count</em>.
  * The {@link #await await} methods block until the current count reaches
  * zero due to invocations of the {@link #countDown} method, after which
@@ -169,10 +176,19 @@ public class CountDownLatch {
             return getState();
         }
 
+        //tryAcquireShared()是重写了父类的方法
+        //在父类中定义了返回值的意义
+        //返回 -1，表示获取共享锁失败
+        //返回 0，表示获取锁成功，但是不换型后续节点
+        //返回 1, 表示获取锁成功，并且唤醒后面所有的共享类型的节点
         protected int tryAcquireShared(int acquires) {
             return (getState() == 0) ? 1 : -1;
         }
 
+        /**
+         *
+         *
+         */
         protected boolean tryReleaseShared(int releases) {
             // Decrement count; signal when transition to zero
             for (;;) {
